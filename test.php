@@ -1,9 +1,12 @@
-# sync-mysql
-PHP版 mysql数据同步脚本
+<?php
+/**
+ * Desc: 使用示例
+ * User: baagee
+ * Date: 2019/7/5
+ * Time: 20:22
+ */
 
-使用示例：
 
-```php
 ini_set('display_errors', 1);
 
 include_once __DIR__ . '/vendor/autoload.php';
@@ -51,4 +54,3 @@ try {
 }
 
 echo "OVER" . PHP_EOL;
-```
