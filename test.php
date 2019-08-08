@@ -31,24 +31,27 @@ $to = [
     'password' => '56743@ss'
 ];
 
-$syncDatabase = new \Sss\SyncDatabase($from, $to);
-
+$tables = [
+    // [
+    //     'table'    => 'user',//表名
+    //     'truncate' => true,// 是否清空表
+    //     'where'    => ''// 筛选那些数据需要同步
+    // ],
+    // ['table'    => 'driver',
+    //  'truncate' => true,],
+    // ['table'    => 'vehicle',
+    //  'truncate' => true,],
+    // ['table'    => 'matrix',
+    //  'truncate' => true,],
+    ['table'    => 'area',
+     'truncate' => false,],
+];
 try {
-    $syncDatabase->sync([
-        // [
-        //     'table'    => 'user',//表名
-        //     'truncate' => true,// 是否清空表
-        //     'where'    => ''// 筛选那些数据需要同步
-        // ],
-        // ['table'    => 'driver',
-        //  'truncate' => true,],
-        // ['table'    => 'vehicle',
-        //  'truncate' => true,],
-        // ['table'    => 'matrix',
-        //  'truncate' => true,],
-        ['table'    => 'area',
-         'truncate' => false,],
-    ]);
+    if (class_exists(\Swoole\Process::class)) {
+        \Sss\SyncDatabase::multiRun($from, $to, $tables);
+    } else {
+        \Sss\SyncDatabase::run($from, $to, $tables);
+    }
 } catch (Throwable $e) {
     echo 'ERROR: ' . $e->getMessage() . PHP_EOL;
 }
