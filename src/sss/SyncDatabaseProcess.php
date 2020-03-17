@@ -24,17 +24,7 @@ class SyncDatabaseProcess
     protected $to = null;
 
     /**
-     * yield查询每页页数
-     */
-    const PAGE_SIZE = 2000;
-
-    /**
-     * 一次批量导入最大数量
-     */
-    const BATCH_INSERT_ROWS_NUMBER = 100;
-
-    /**
-     * SyncDatabase constructor.
+     * SyncDatabaseProcess constructor.
      * @param array $from
      * @param array $to
      */
@@ -61,30 +51,93 @@ class SyncDatabaseProcess
         $options = [
             // \PDO::MYSQL_ATTR_MULTI_STATEMENTS => false,//禁止多语句查询
             \PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES '" . $config['charset'] . "';",// 设置客户端连接字符集
-            \PDO::ATTR_TIMEOUT            => 5,// 设置超时
+            \PDO::ATTR_TIMEOUT            => 10,// 设置超时
             \PDO::ATTR_PERSISTENT         => true,// 长链接
         ];
         $dsn     = sprintf('mysql:dbname=%s;host=%s;port=%d', $config['database'], $config['host'], $config['port']);
         $pdo     = new \PDO($dsn, $config['user'], $config['password'], $options);
         // $pdo->setAttribute(\PDO::ATTR_EMULATE_PREPARES, false); //禁用模拟预处理
-        // $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION); //禁用模拟预处理
+        $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
         $pdo->config = $config;
         return $pdo;
     }
 
+    /**
+     * @param array $tableConf
+     * @return bool
+     * @throws \Exception
+     */
     public function sync(array $tableConf)
     {
         $tableName = $tableConf['table'] ?? '';
         if (empty($tableName)) {
             throw new \Exception('表名不能为空');
         }
-        $truncate = $tableConf['truncate'] ? true : false;
-        $where    = empty($tableConf['where']) ? 'true' : $tableConf['where'];
+        if (isset($tableConf['truncate'])) {
+            $truncate = $tableConf['truncate'] ? true : false;
+        } else {
+            //默认清空
+            $truncate = true;
+        }
+        $where = empty($tableConf['where']) ? '' : $tableConf['where'];
 
         $this->print('开始执行同步数据表 ' . $tableName);
         $startTime = microtime(true);
-        $this->syncData($tableName, $where, $truncate);
-        $this->print($tableName . ' 数据导入完毕，耗时：' . number_format(microtime(true) - $startTime, 2, '.', ''));
+        //是否同步表结构
+        $tableDesc = false;
+        try {
+            //判断两表结构是否一样
+            $res = $this->checkTableStructure($tableName);
+        } catch (\Exception $e) {
+            $this->print(sprintf("【%s】表同步失败: %s", $tableName, $e->getMessage()));
+            return false;
+        }
+        if ($res == false) {
+            $msg = sprintf('两个数据库表%s字段不一致，需要同步表结构', $tableName);
+            $this->print($msg);
+        }
+        // 开始导出数据
+        $dump = new MySqlDump($this->from->config['host'], $this->from->config['port'], $this->from->config['user'],
+            $this->from->config['password'], $this->from->config['database'], $tableName, '', $where, $tableDesc);
+        $this->print($dump);
+        $dump->execute();
+        $localFile = $dump->getExportFile();
+        // 开始导入数据
+        $importRes = $this->importData($tableName, $truncate, $localFile);
+        if ($importRes) {
+            $this->print('【' . $tableName . '】数据导入成功，耗时：' . number_format(microtime(true) - $startTime, 2, '.', ''));
+        } else {
+            $this->print('【' . $tableName . '】数据导入失败，耗时：' . number_format(microtime(true) - $startTime, 2, '.', ''));
+        }
+        unlink($localFile);
+    }
+
+    /**
+     * 导入数据
+     * @param $tableName
+     * @param $truncate
+     * @param $localFile
+     * @return bool
+     */
+    protected function importData($tableName, $truncate, $localFile)
+    {
+        if ($truncate) {
+            $this->print("开始清空【" . $tableName . "】已有数据");
+            $this->truncate($tableName);
+        }
+
+        $cmd = sprintf('mysql -h%s -P%d -u%s -p%s %s -e "source %s"',
+            $this->to->config['host'], $this->to->config['port'], $this->to->config['user'], $this->to->config['password'],
+            $this->to->config['database'], $localFile
+        );
+        $this->print($cmd);
+        exec($cmd, $ret, $ret2);
+        // echo implode(PHP_EOL, $ret) . PHP_EOL;
+        if ($ret2 === 0) {
+            return true;
+        } else {
+            return false;
+        }
     }
 
     /**
@@ -115,21 +168,6 @@ class SyncDatabaseProcess
             fwrite(STDOUT, $tip);
             return trim(fgets(STDIN));
         }
-    }
-
-    /**
-     * 同步表结构
-     * @param $tableName
-     * @return bool
-     */
-    protected function syncTableStructure($tableName)
-    {
-        $this->to->exec(sprintf('DROP TABLE `%s`', $tableName));
-        $createTable    = $this->from->query(sprintf('SHOW CREATE TABLE `%s`', $tableName))->fetchAll(\PDO::FETCH_ASSOC);
-        $createTableSql = $createTable[0]['Create Table'];
-        $this->to->exec($createTableSql);
-        $this->print(sprintf('同步表%s结构成功', $tableName));
-        return true;
     }
 
     /**
@@ -164,77 +202,6 @@ class SyncDatabaseProcess
         return empty($diff1) && empty($diff2);
     }
 
-
-    /**
-     * 同步数据
-     * @param string $tableName
-     * @param string $where
-     * @param bool   $truncate
-     * @return bool
-     * @throws \Exception
-     */
-    protected function syncData(string $tableName, string $where, bool $truncate)
-    {
-        // 检查表结构是否一样
-        $res = $this->checkTableStructure($tableName);
-        if ($res == false) {
-            $this->syncTableStructure($tableName);
-            
-            // 不一样 是否需要同步表结构
-            // $an = $this->getInput(sprintf('两个数据库表%s字段不一致，是否同步？(yes/no)', $tableName));
-            // if ($an == 'yes') {
-            //     $this->syncTableStructure($tableName);
-            // } else {
-            //     $this->print(sprintf('跳过同步%s表', $tableName));
-            //     return false;
-            // }
-        }
-
-        if ($truncate) {
-            // 清空测试环境司机信息
-            $this->truncate($tableName);
-        }
-
-        return $this->syncTableData($tableName, $where);
-    }
-
-    /**
-     * 同步表数据
-     * @param $tableName
-     * @param $where
-     * @return bool
-     * @throws \Exception
-     */
-    protected function syncTableData($tableName, $where)
-    {
-        // 总数量
-        $totalCount = $this->getTotalCount($tableName, $where);
-        $page       = ceil($totalCount / self::PAGE_SIZE);
-        $lineCount  = 0;
-        for ($i = 1; $i <= $page; $i++) {
-            // 分页导入
-            $list = $this->yieldRow($tableName, $i, $where);
-            if ($list instanceof \Generator) {
-                $batchInsertRows = [];
-                foreach ($list as $index => $row) {
-                    $batchInsertRows[] = $row;
-                    $lineCount++;
-                    if ($index !== 0 && (($index + 1) % self::BATCH_INSERT_ROWS_NUMBER == 0)) {
-                        $this->batchInsert($tableName, $batchInsertRows);
-                        $batchInsertRows = [];
-                    }
-                }
-
-                if (!empty($batchInsertRows)) {
-                    $this->batchInsert($tableName, $batchInsertRows);
-                }
-                $this->print($tableName . ' 数据导入 ' . number_format($lineCount / $totalCount * 100, 2, '.', '') . '%');
-            }
-            unset($list);
-        }
-        return true;
-    }
-
     /**
      * 清空表
      * @param $tableName
@@ -242,77 +209,5 @@ class SyncDatabaseProcess
     protected function truncate($tableName)
     {
         $this->to->exec(sprintf('TRUNCATE `%s`', $tableName));
-    }
-
-    /**
-     * 批量插入
-     * @param $tableName
-     * @param $batchInsertRows
-     */
-    protected function batchInsert($tableName, $batchInsertRows)
-    {
-        $sql         = 'REPLACE INTO `' . $tableName . '` (';
-        $fields      = [];
-        $zz          = '';
-        $prepareData = [];
-        foreach ($batchInsertRows as $i => $item_array) {
-            $z = '(';
-            foreach ($item_array as $k => $v) {
-                if (!in_array($k, $fields)) {
-                    $fields[] = $k;
-                }
-                $z                                .= ':' . $k . '_' . $i . ', ';
-                $prepareData[':' . $k . '_' . $i] = $v;
-            }
-            $zz .= rtrim($z, ', ') . '),';
-        }
-        $fields = '`' . implode('`, `', $fields) . '`';
-        $sql    .= $fields;
-        $sql    = rtrim($sql, ', ') . ') VALUES ' . rtrim($zz, ',');
-        $stmt   = $this->to->prepare($sql);
-        $res    = $stmt->execute($prepareData);
-        if ($res) {
-            // $this->print(sprintf('成功导入%d条数据', count($batchInsertRows)));
-        } else {
-            $this->print(sprintf('WARNING %s导入数据失败', $tableName));
-        }
-    }
-
-    /**
-     * 获取要同步数据总数量
-     * @param $tableName
-     * @param $where
-     * @return mixed
-     * @throws \Exception
-     */
-    protected function getTotalCount($tableName, $where)
-    {
-        $sql  = sprintf('SELECT count(*) AS c FROM `%s` WHERE %s', $tableName, $where);
-        $stmt = $this->from->query($sql);
-        if ($stmt == false) {
-            throw new \Exception('查询数据失败:' . $sql);
-        }
-        return $stmt->fetch(\PDO::FETCH_ASSOC)['c'];
-    }
-
-    /**
-     * 返回数据生成器
-     * @param $tableName
-     * @param $p
-     * @param $where
-     * @return \Generator
-     * @throws \Exception
-     */
-    protected function yieldRow($tableName, $p, $where)
-    {
-        $sql  = sprintf('SELECT * FROM `%s` WHERE %s LIMIT %d, %d', $tableName, $where, ($p - 1) * self::PAGE_SIZE, self::PAGE_SIZE);
-        $stmt = $this->from->prepare($sql);
-        $rrr  = $stmt->execute();
-        if ($rrr === false || $stmt == false) {
-            throw new \Exception($tableName . ' 查询数据失败:' . $sql);
-        }
-        while ($row = $stmt->fetch(\PDO::FETCH_ASSOC)) {
-            yield $row;
-        }
     }
 }
