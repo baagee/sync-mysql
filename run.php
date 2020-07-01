@@ -3,9 +3,11 @@
 ini_set('display_errors', 1);
 error_reporting(E_ALL);
 
-include_once __DIR__ . '/vendor/autoload.php';
 
-$config = include_once __DIR__ . DIRECTORY_SEPARATOR . 'config.php';
+$curDir = dirname(__FILE__);
+require_once $curDir . '/vendor/autoload.php';
+
+$config = include_once $curDir . '/config.php';
 
 try {
     if (class_exists(\Swoole\Process::class)) {
