@@ -12,5 +12,8 @@
       "type": "composer",
       "url": "https://mirrors.aliyun.com/composer/"
     }
+  },
+  "require": {
+    "baagee/async-task": "^0.1.2"
   }
 }

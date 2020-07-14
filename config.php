@@ -6,32 +6,33 @@
 return [
     /*******************************线上备库********************************/
     'from' => [
-        'host' => '127.0.0.1',
-        'port' => 5418,
+        'host' => '',
+        'port' => 6655,
         'charset' => 'utf8',
-        'database' => 'sdgsa',
-        'user' => 'hadsgfas',
-        'password' => 'I2Xydsffgsdf'
+        'database' => '',
+        'user' => '',
+        'password' => ''
     ],
     /*******************************线上备库********************************/
 
     // /*******************************我的环境********************************/
     'to' => [
-        'host' => '128.0.0.1',
-        'port' => 5728,
+        'host' => '',
+        'port' => 2222,
         'charset' => 'utf8',
-        'database' => 'sdga',
-        'user' => 'fd12',
-        'password' => 'dhdsfhd'
+        'database' => '',
+        'user' => '',
+        'password' => ''
     ],
     /*******************************我的环境********************************/
 
-    'page_size' => 1000,//一次查询数量条数
+    'page_size' => 3000,//一次查询数量条数
+    //一次同步不要超过20个表
     'table' => [
-        // ['table' => 'tms_line', 'truncate' => true,'where'=>'create_time>="2020-03-29"'],
-        // ['table' => 'tms_line_sort', 'truncate' => true,'where'=>'create_time>="2020-03-29"'],
-        // ['table' => 'tms_line_sort_deliver', 'truncate' => true,'where'=>'create_time>="2020-03-29"'],
-        // ['table' => 'tms_scheduling', 'truncate' => true,'where'=>'create_time>="2020-03-29"'],
-        // ['table' => 'tms_waybill', 'truncate' => true,'where'=>'create_time>="2020-03-29"'],
+        // ['table' => 'batch_group_rule', 'truncate' => true, 'where' => 'create_time<"2020-05-15 19:33:47"'],
+        // ['table' => 'main_account', 'truncate' => true],
+        // ['table' => 'bms_order', 'truncate' => true],
+        // ['table' => 'privilege', 'truncate' => true],
+
     ],
 ];

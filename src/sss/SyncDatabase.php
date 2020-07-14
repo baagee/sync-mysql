@@ -14,7 +14,10 @@ namespace Sss;
  */
 class SyncDatabase
 {
-    public static function multiRun($from, $to, $tableConfList, $pageSize = 3000)
+    /*
+     * swoole多进程同步
+     */
+    public static function swooleRun($from, $to, $tableConfList, $pageSize = 3000)
     {
         foreach ($tableConfList as $tableConf) {
             $process = new \Swoole\Process(function (\Swoole\Process $process) {
@@ -24,12 +27,31 @@ class SyncDatabase
             }, false, true);
 
             $process->write(json_encode([
-                'from'      => $from,
-                'to'        => $to,
-                'pageSize'  => $pageSize,
+                'from' => $from,
+                'to' => $to,
+                'pageSize' => $pageSize,
                 'tableConf' => $tableConf
             ]));
             $process->start();
+            // usleep(400000);
+        }
+    }
+
+    /*
+     * 借助第三方包使用多进程同步
+     */
+    public static function taskRun($from, $to, $tableConfList, $pageSize = 3000)
+    {
+        $baseDir = getcwd();
+        $outputDir = $baseDir . '/output';
+        if (!is_dir($outputDir)) {
+            mkdir($outputDir, 0755, true);
+        }
+        \BaAGee\AsyncTask\TaskScheduler::init($outputDir . '/lock', 20, $outputDir);
+        $task = \BaAGee\AsyncTask\TaskScheduler::getInstance();
+        foreach ($tableConfList as $tableConf) {
+            $task->runTask(\Sss\SyncTask::class, [serialize($from), serialize($to), serialize($tableConf), $pageSize]);
+            echo sprintf('%s同步任务已启动，日志路径：%s' . PHP_EOL, $tableConf['table'], $outputDir);
         }
     }
 

@@ -24,11 +24,6 @@ class SyncDatabaseProcess
     protected $to = null;
 
     /**
-     * @var ProcessBar
-     */
-    protected $process = null;
-
-    /**
      * yield查询每页页数
      */
     protected $pageSize = 3000;
@@ -51,7 +46,6 @@ class SyncDatabaseProcess
         if (!empty($pageSize) && is_numeric($pageSize)) {
             $this->pageSize = (int)$pageSize;
         }
-        $this->process = new ProcessBar();
         echo PHP_EOL;
     }
 
@@ -99,9 +93,8 @@ class SyncDatabaseProcess
 
         $this->print('开始执行同步数据表 ' . $tableName);
         $startTime = microtime(true);
-        $this->process->setTitle($tableName);
         $this->syncData($tableName, $where, $truncate);
-        $this->print('【' . $tableName . '】数据导入完毕，耗时：' . number_format(microtime(true) - $startTime, 2, '.', ''));
+        $this->print('【' . $tableName . '】数据导入完毕，耗时：' . number_format(microtime(true) - $startTime, 2, '.', '') . '秒');
     }
 
     /**
@@ -109,7 +102,7 @@ class SyncDatabaseProcess
      */
     protected function print($msg)
     {
-        echo sprintf('==== PID:%-8d  %s ===' . PHP_EOL,  posix_getpid(),$msg);
+        echo sprintf('==== PID:%-8d  %s ===' . PHP_EOL, posix_getpid(), $msg);
     }
 
     /**
@@ -265,7 +258,6 @@ class SyncDatabaseProcess
         try {
             // 总数量
             $totalCount = $this->getTotalCount($tableName, $where);
-            $this->process->setTotal($totalCount);
             $page = ceil($totalCount / $this->pageSize);
             $lineCount = 0;
             for ($i = 1; $i <= $page; $i++) {
