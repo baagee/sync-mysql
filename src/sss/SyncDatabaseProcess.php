@@ -93,8 +93,14 @@ class SyncDatabaseProcess
 
         $this->print('开始执行同步数据表 ' . $tableName);
         $startTime = microtime(true);
+        $this->to->exec('set autocommit=0');
+        $this->to->exec('SET unique_checks=0');
+        $this->to->exec('SET foreign_key_checks=0');
         $this->syncData($tableName, $where, $truncate);
-        $this->print('【' . $tableName . '】数据导入完毕，耗时：' . number_format(microtime(true) - $startTime, 2, '.', '') . '秒');
+        $this->to->exec('set autocommit=1');
+        $this->to->exec('SET unique_checks=1');
+        $this->to->exec('SET foreign_key_checks=1');
+        $this->print('【' . $tableName . '】数据导入完毕，耗时：' . number_format(microtime(true) - $startTime, 2, '.', ''));
     }
 
     /**
@@ -338,6 +344,7 @@ class SyncDatabaseProcess
         $res = $stmt->execute($prepareData);
         if ($res) {
             // $this->print(sprintf('成功导入%d条数据', count($batchInsertRows)));
+            $this->to->exec('commit');
         } else {
             $this->print(sprintf('WARNING 【%s】导入数据失败', $tableName));
         }
